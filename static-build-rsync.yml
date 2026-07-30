@@ -1,0 +1,58 @@
+name: static-build-rsync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: alpine:3.20
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          apk add --no-cache \
+            build-base \
+            autoconf \
+            automake \
+            perl \
+            python3 \
+            wget \
+            tar \
+            zlib-dev \
+            popt-dev
+
+      - name: Download rsync
+        run: |
+          wget https://download.samba.org/pub/rsync/src/rsync-3.4.1.tar.gz
+          tar -xf rsync-3.4.1.tar.gz
+
+      - name: Build static rsync
+        run: |
+          cd rsync-3.4.1
+          ./configure \
+            CFLAGS="-static" \
+            LDFLAGS="-static" \
+            --disable-openssl \
+            --disable-xxhash \
+            --disable-zstd \
+            --disable-lz4 \
+            --disable-acl-support \
+            --disable-xattr-support
+          make -j"$(nproc)"
+          strip rsync
+          file rsync
+          ldd rsync || true
+          ./rsync --version
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp rsync-3.4.1/rsync dist/rsync
+          sha256sum dist/rsync > dist/SHA256SUMS
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rsync-linux-amd64-static
+          path: dist/
