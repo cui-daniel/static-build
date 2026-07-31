@@ -29,7 +29,7 @@ jobs:
           apk add --no-cache \
             bash build-base pkgconf nasm yasm cmake meson ninja \
             autoconf automake libtool git wget curl tar xz bzip2 gzip \
-            file perl python3 patch ca-certificates
+            file perl python3 patch ca-certificates gperf
 
       - name: Build static ffmpeg and all libraries
         shell: bash
