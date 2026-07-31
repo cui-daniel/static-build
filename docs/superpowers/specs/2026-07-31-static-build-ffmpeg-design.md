@@ -2,8 +2,12 @@
 
 - **Date:** 2026-07-31
 - **Author:** daniel
-- **Status:** Approved (pending spec review)
+- **Status:** Approved (Approach B — see revision below)
 - **Related:** `.github/workflows/static-build-rsync.yml`(参考模板)
+
+## 0. 修订记录
+
+**2026-07-31 — 改为方案 B(全量从源码编译)。** 原方案 A(用 Alpine `-dev` 静态包)经实测不可行:Alpine 不为所有库提供静态归档 `.a`(`libass` 完全没有 `.a`,既无 `libass-static` 子包,`libass-dev` 也不含 `.a`;freetype/harfbuzz/fontconfig 等虽有 `-static` 子包,但 `harfbuzz` 的传递依赖 glib→pcre2/util-linux/libffi 静态链不可靠)。`ffmpeg` 的 `require_pkg_config` 是"编译+静态链接"测试,任何缺失的 `.a` 都会让 `--enable-libX` 配置失败(CI 实测在 `libass` 处报 `not found using pkg-config`)。改为**全部编解码/文本渲染库从源码编译为静态归档**到 `/opt/ff`,使静态链接链自洽(与 johnvansickle 静态 ffmpeg 一致)。构建脚本:`scripts/build-ffmpeg-static.sh`。
 
 ## 1. 目标
 
@@ -17,15 +21,15 @@
 | 编解码/功能库 | x264、x265、libvpx、aom(AV1)、libmp3lame、libopus、libvorbis、libtheora、libwebp、libass、freetype |
 | 不含 | fdk-aac(non-free),故**不**设 `--enable-nonfree`;产物许可为 **GPL** |
 | 架构 | 仅 amd64(与 rsync 一致),artifact 名 `ffmpeg-linux-amd64-static` |
-| 构建方式 | 方案 A:单阶段 `alpine:3.20` 容器,apk 安装 `-dev` 静态包,仅 ffmpeg 本体从源码编译 |
+| 构建方式 | **方案 B**:单阶段 `alpine:3.20` 容器,**全部编解码/文本渲染库从源码编译为静态归档**到 `/opt/ff`,再编译 ffmpeg 本体(见 `scripts/build-ffmpeg-static.sh`)。apk 仅用于安装构建工具链 |
 | ffmpeg 版本 | 固定 **8.1.2 "Hoare"**(2026-06-17,当前最新稳定版),workflow 顶部用 `env.VERSION` 变量便于升级 |
 
 ## 3. 不做(YAGNI)
 
 - 不构建 arm64(后续可加 matrix)。
 - 不发布 GitHub Release(与 rsync 一致,只产 artifact)。
-- 不从源码编译编解码库(Alpine 已提供静态包,无需 johnvansickle 式全量自编译)。
 - 不构建 ffplay(无 SDL,默认不产出,符合预期)。
+- 不启用 fdk-aac(non-free);不含 libpng/brotli/bzip2(freetype 用 `--without-*` 关闭,减少传递依赖)。
 
 ## 4. workflow 设计
 

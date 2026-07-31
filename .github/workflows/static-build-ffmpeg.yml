@@ -1,5 +1,9 @@
 # Static ffmpeg build (Linux amd64, GPL).
 # Produces a fully statically-linked ffmpeg + ffprobe + SHA256SUMS.
+#
+# All codec + text-rendering libraries are compiled FROM SOURCE as static
+# archives into /opt/ff (see scripts/build-ffmpeg-static.sh), because Alpine's
+# apk does not ship static archives for all of them (libass has none).
 # License: linked against GPL libs (x264/x265/aom/...) -> binary is GPL.
 #          fdk-aac is intentionally NOT enabled (non-free).
 
@@ -17,47 +21,31 @@ jobs:
     container: alpine:3.20
 
     steps:
-      - name: Install build dependencies
+      - name: Checkout build script
+        uses: actions/checkout@v4
+
+      - name: Install build tools
         run: |
           apk add --no-cache \
-            build-base pkgconf nasm yasm tar xz wget file \
-            x264-dev x265-dev libvpx-dev aom-dev lame-dev opus-dev \
-            libvorbis-dev libtheora-dev libwebp-dev libass-dev freetype-dev \
-            fribidi-dev harfbuzz-dev fontconfig-dev libogg-dev
+            bash build-base pkgconf nasm yasm cmake meson ninja \
+            autoconf automake libtool git wget curl tar xz bzip2 gzip \
+            file perl python3 patch ca-certificates
 
-      - name: Download ffmpeg
-        run: |
-          wget "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
-          tar -xf "ffmpeg-${FFMPEG_VERSION}.tar.xz"
-
-      - name: Build static ffmpeg
-        run: |
-          cd "ffmpeg-${FFMPEG_VERSION}"
-          ./configure \
-            --disable-debug --disable-doc \
-            --disable-shared --enable-static \
-            --enable-gpl --enable-version3 \
-            --enable-libx264 --enable-libx265 --enable-libvpx --enable-libaom \
-            --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora \
-            --enable-libwebp --enable-libass --enable-libfreetype \
-            --extra-cflags="-static" \
-            --extra-ldflags="-static" \
-            --extra-ldexeflags="-static" \
-            --pkg-config-flags="--static"
-          make -j"$(nproc)"
+      - name: Build static ffmpeg and all libraries
+        shell: bash
+        run: bash scripts/build-ffmpeg-static.sh
 
       - name: Strip and verify static linking
         run: |
-          cd "ffmpeg-${FFMPEG_VERSION}"
-          strip ffmpeg ffprobe
-          file ffmpeg ffprobe
-          ldd ffmpeg ffprobe || true
-          ./ffmpeg -version | head -20
+          strip /opt/ff/bin/ffmpeg /opt/ff/bin/ffprobe
+          echo "=== file ==="; file /opt/ff/bin/ffmpeg /opt/ff/bin/ffprobe
+          echo "=== ldd ==="; ldd /opt/ff/bin/ffmpeg /opt/ff/bin/ffprobe || true
+          echo "=== version ==="; /opt/ff/bin/ffmpeg -version | head -20
 
       - name: Package
         run: |
           mkdir -p dist
-          cp "ffmpeg-${FFMPEG_VERSION}/ffmpeg" "ffmpeg-${FFMPEG_VERSION}/ffprobe" dist/
+          cp /opt/ff/bin/ffmpeg /opt/ff/bin/ffprobe dist/
           sha256sum dist/ffmpeg dist/ffprobe > dist/SHA256SUMS
           cat dist/SHA256SUMS
 
