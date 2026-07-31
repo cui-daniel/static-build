@@ -36,18 +36,20 @@ export MAKEFLAGS="-j${JOBS}"
 log() { printf '\n\033[1;34m========== %s ==========\033[0m\n' "$*"; }
 
 # fetch OUTFILE URL [URL...]  -- try each mirror (with retries) until one works.
+# Captures wget's actual error so a failed download says WHY (not just "failed").
 fetch() {
   local out="$1"; shift
-  local url i
+  local url i errfile
+  errfile="$SRC/.wgeterr"
   for url in "$@"; do
-    for i in 1 2 3; do
-      if wget -q --no-check-certificate --tries=1 --timeout=45 \
+    for i in 1 2 3 4 5; do
+      if wget --no-check-certificate --tries=1 --timeout=45 \
            --user-agent="Mozilla/5.0 (static-build-ffmpeg)" \
-           "$url" -O "$out" && [ -s "$out" ]; then
+           "$url" -O "$out" 2>"$errfile" && [ -s "$out" ]; then
         return 0
       fi
-      echo "  (download attempt $i failed: $(basename "$url"); retrying)" >&2
-      sleep 4
+      echo "  (attempt $i for $(basename "$url") failed: $(tr '\r' '\n' < "$errfile" | grep -Ei 'error|fail|unable|refused|timed|not found|404|403|500|502|503' | tail -1))" >&2
+      sleep $(( i * 3 ))
     done
     echo "  (exhausted retries on $url; trying next mirror if any)" >&2
   done
@@ -92,11 +94,20 @@ build_autotools expat \
   --without-docbook
 
 # ---------------------------------------------------------------------------
-# 3. freetype (no harfbuzz/png/bzip2/brotli -> minimal deps). SourceForge mirror.
+# 3. freetype. GitHub tag archive (most reliable host) via meson; the
+#    SourceForge release tarball is the fallback. Both archives ship meson.build.
+#    (The GitHub git archive's top-level ./configure is only a stub; meson
+#    avoids needing autogen.sh.)
 # ---------------------------------------------------------------------------
-build_autotools freetype \
-  "https://download.sourceforge.net/freetype/freetype-2.13.3.tar.xz" \
-  --without-harfbuzz --without-png --without-bzip2 --without-brotli
+setup_src freetype \
+  "https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.tar.gz" \
+  "https://download.sourceforge.net/freetype/freetype-2.13.3.tar.xz"
+meson setup build --prefix="$PREFIX" --default-library=static --strip \
+  --wrap-mode=nodownload \
+  -Dharfbuzz=disabled -Dbzip2=disabled -Dbrotli=disabled -Dpng=disabled \
+  -Dzlib=enabled -Dtests=disabled
+meson compile -C build
+meson install -C build
 
 # ---------------------------------------------------------------------------
 # 4. fribidi
@@ -162,11 +173,15 @@ build_autotools opus \
   --disable-doc --disable-extra-programs
 
 # ---------------------------------------------------------------------------
-# 13. lame (mp3lame)
+# 13. lame (mp3lame). SourceForge-only; give both URL forms as fallbacks.
 # ---------------------------------------------------------------------------
-build_autotools lame \
+setup_src lame \
   "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz" \
+  "https://downloads.sourceforge.net/sourceforge/lame/lame-3.100.tar.gz"
+./configure --prefix="$PREFIX" --enable-static --disable-shared \
   --disable-frontend --disable-analyzer --disable-gtktest
+make
+make install
 
 # ---------------------------------------------------------------------------
 # 14. libvpx (custom configure; GitHub tag archive, needs nasm)
