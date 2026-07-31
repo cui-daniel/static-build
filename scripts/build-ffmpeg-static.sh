@@ -225,8 +225,6 @@ cmake -G "Unix Makefiles" -S source -B build \
   -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_LIBNUMA=OFF
 cmake --build build
 cmake --install build
-# x265.pc may reference -lrt, which musl does not ship separately -> strip it.
-sed -i 's/ -lrt\b//g' "$PREFIX/lib/pkgconfig/x265.pc" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # 17. aom (cmake; googlesource +archive extracts FLAT -> no strip)
@@ -250,6 +248,16 @@ cmake --install build
 setup_src ffmpeg \
   "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
   "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+
+# Static-link fixups on the generated .pc files (musl/Alpine):
+#  - strip -lrt    (musl ships rt in libc; no separate librt is needed)
+#  - strip -lgcc_s (Alpine ships no static libgcc_s.a, only libgcc_s.so, so
+#                   ffmpeg's -static pkg-config probe fails "cannot find
+#                   -lgcc_s". libgcc.a (via -lgcc) covers the symbols.
+#                   Emitted mainly by x265.pc, the only C++ library here.)
+for pc in "$PREFIX/lib/pkgconfig"/*.pc; do
+  sed -i -e 's/ -lrt\b//g' -e 's/ -lgcc_s\b//g' "$pc" 2>/dev/null || true
+done
 
 # Diagnostic: x265's pkg-config link test is the usual static-build sticking
 # point (it's a C++ lib). Print what pkg-config sees so a failure is obvious.
