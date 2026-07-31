@@ -245,11 +245,20 @@ cmake --install build
 # ---------------------------------------------------------------------------
 # 18. ffmpeg
 # ---------------------------------------------------------------------------
-# ffmpeg.org is canonical; GitHub mirror (tag n<ver>) is the fallback in case
-# ffmpeg.org is unreachable from the runner.
+# GitHub mirror first: ffmpeg.org frequently times out from the CI runner.
+# (Both archives ship the same generated configure.)
 setup_src ffmpeg \
-  "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-  "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz"
+  "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
+  "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+
+# Diagnostic: x265's pkg-config link test is the usual static-build sticking
+# point (it's a C++ lib). Print what pkg-config sees so a failure is obvious.
+echo "=== x265.pc ==="; sed -n '1,20p' "$PREFIX/lib/pkgconfig/x265.pc" 2>/dev/null || echo "(no x265.pc)"
+echo "=== pkg-config --static --libs x265 ==="; pkg-config --static --libs x265 2>&1 || true
+
+# -lstdc++ is required: x265 is C++, and its static link test into ffmpeg's C
+# configure probe needs the C++ runtime. musl ships -lrt/-ldl/-lm as libc stubs,
+# so those resolve; -lstdc++ (from build-base's g++) is the one that must be named.
 ./configure \
   --prefix="$PREFIX" \
   --disable-debug --disable-doc \
@@ -262,8 +271,9 @@ setup_src ffmpeg \
   --extra-cflags="-I${PREFIX}/include" \
   --extra-ldflags="-L${PREFIX}/lib -static" \
   --extra-ldexeflags="-static" \
-  --extra-libs="-lpthread -lm -ldl" \
-  --pkg-config-flags="--static"
+  --extra-libs="-lpthread -lm -ldl -lstdc++" \
+  --pkg-config-flags="--static" \
+  || { echo "=== ffbuild/config.log (tail) ==="; tail -80 ffbuild/config.log 2>/dev/null; exit 1; }
 make
 make install
 
