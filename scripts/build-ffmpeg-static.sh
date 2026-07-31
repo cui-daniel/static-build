@@ -127,11 +127,18 @@ meson compile -C build
 meson install -C build
 
 # ---------------------------------------------------------------------------
-# 6. fontconfig (needs freetype + expat)
+# 6. fontconfig (needs freetype + expat). www.freedesktop.org returns HTTP 418
+#    to automated clients right now, so use the Debian pool pristine upstream
+#    tarball (release build, has a generated ./configure). freedesktop.org is
+#    kept as a fallback in case Debian pool is unavailable.
 # ---------------------------------------------------------------------------
-build_autotools fontconfig \
-  "https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.xz" \
+setup_src fontconfig \
+  "https://deb.debian.org/debian/pool/main/f/fontconfig/fontconfig_2.15.0.orig.tar.xz" \
+  "https://www.freedesktop.org/software/fontconfig/release/fontconfig-2.15.0.tar.xz"
+./configure --prefix="$PREFIX" --enable-static --disable-shared \
   --sysconfdir=/etc --localstatedir=/var
+make
+make install
 
 # ---------------------------------------------------------------------------
 # 7. libass (needs harfbuzz + freetype + fontconfig). 0.16.x -> no libunibreak.
