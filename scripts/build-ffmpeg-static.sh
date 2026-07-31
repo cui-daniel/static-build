@@ -267,6 +267,12 @@ echo "=== pkg-config --static --libs x265 ==="; pkg-config --static --libs x265 
 # -lstdc++ is required: x265 is C++, and its static link test into ffmpeg's C
 # configure probe needs the C++ runtime. musl ships -lrt/-ldl/-lm as libc stubs,
 # so those resolve; -lstdc++ (from build-base's g++) is the one that must be named.
+# (harfbuzz is also C++-compiled; the same -lstdc++ covers its static link test.)
+#
+# Text-rendering: --enable-libharfbuzz is NOT optional here. ffmpeg's drawtext
+# filter hard-depends on BOTH libfreetype and libharfbuzz
+# (configure: drawtext_filter_deps="libfreetype libharfbuzz"); enabling only
+# libfreetype silently drops the drawtext filter from the build.
 ./configure \
   --prefix="$PREFIX" \
   --disable-debug --disable-doc \
@@ -274,7 +280,8 @@ echo "=== pkg-config --static --libs x265 ==="; pkg-config --static --libs x265 
   --enable-gpl --enable-version3 \
   --enable-libx264 --enable-libx265 --enable-libvpx --enable-libaom \
   --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora \
-  --enable-libwebp --enable-libass --enable-libfreetype \
+  --enable-libwebp --enable-libass \
+  --enable-libfreetype --enable-libharfbuzz \
   --enable-libfontconfig --enable-libfribidi \
   --extra-cflags="-I${PREFIX}/include" \
   --extra-ldflags="-L${PREFIX}/lib -static" \
