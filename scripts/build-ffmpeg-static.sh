@@ -180,11 +180,13 @@ build_autotools opus \
   --disable-doc --disable-extra-programs
 
 # ---------------------------------------------------------------------------
-# 13. lame (mp3lame). SourceForge-only; give both URL forms as fallbacks.
+# 13. lame (mp3lame). SourceForge 403s the CI runner's IP, so use the Debian
+#    pool pristine upstream tarball (release build with configure); SourceForge
+#    URL kept as a fallback.
 # ---------------------------------------------------------------------------
 setup_src lame \
-  "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz" \
-  "https://downloads.sourceforge.net/sourceforge/lame/lame-3.100.tar.gz"
+  "https://deb.debian.org/debian/pool/main/l/lame/lame_3.100.orig.tar.gz" \
+  "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz"
 ./configure --prefix="$PREFIX" --enable-static --disable-shared \
   --disable-frontend --disable-analyzer --disable-gtktest
 make
