@@ -203,9 +203,15 @@ make
 make install
 
 # ---------------------------------------------------------------------------
-# 15. x264 (custom configure; GitLab "stable" archive)
+# 15. x264 (custom configure). code.videolan.org GitLab serves a bot-check
+#    HTML page to the CI runner (its bz2 archive downloads as non-tar), so use
+#    the github.com/mirror/x264 git archive (stable branch) instead; videolan
+#    is kept only as a last-resort fallback.
 # ---------------------------------------------------------------------------
-setup_src x264 "https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2"
+setup_src x264 \
+  "https://github.com/mirror/x264/archive/refs/heads/stable.tar.gz" \
+  "https://github.com/mirror/x264/archive/refs/heads/master.tar.gz" \
+  "https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2"
 ./configure --prefix="$PREFIX" --enable-static --disable-cli --disable-opencl
 make
 make install
