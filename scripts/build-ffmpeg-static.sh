@@ -9,10 +9,11 @@
 # these libraries (libass has no .a at all; many libs need separate -static
 # subpackages that pull in fragile transitive chains). Building everything from
 # source into one prefix makes the static link chain self-consistent and removes
-# the apk-static guessing entirely. This is the same approach used by the
-# well-known "johnvansickle" static-ffmpeg Linux builds.
+# the apk-static guessing entirely. Same approach as the well-known
+# "johnvansickle" static-ffmpeg Linux builds.
 #
 # License: GPL (links x264/x265/aom/...). fdk-aac is intentionally NOT enabled.
+# Requires GNU tar/wget + a full build toolchain (installed by the workflow).
 
 set -Eeuo pipefail
 
@@ -34,24 +35,42 @@ export MAKEFLAGS="-j${JOBS}"
 
 log() { printf '\n\033[1;34m========== %s ==========\033[0m\n' "$*"; }
 
-download() {  # download URL OUTFILE
-  wget -q --no-check-certificate "$1" -O "$2"
+# fetch OUTFILE URL [URL...]  -- try each mirror (with retries) until one works.
+fetch() {
+  local out="$1"; shift
+  local url i
+  for url in "$@"; do
+    for i in 1 2 3; do
+      if wget -q --no-check-certificate --tries=1 --timeout=45 \
+           --user-agent="Mozilla/5.0 (static-build-ffmpeg)" \
+           "$url" -O "$out" && [ -s "$out" ]; then
+        return 0
+      fi
+      echo "  (download attempt $i failed: $(basename "$url"); retrying)" >&2
+      sleep 4
+    done
+    echo "  (exhausted retries on $url; trying next mirror if any)" >&2
+  done
+  echo "ERROR: could not download any of: $*" >&2
+  return 1
 }
 
-topdir() {  # topdir ARCHIVE -> first path component of the archive
-  tar -tf "$1" | head -1 | cut -d/ -f1
+# Fetch + extract a normal (single-root) archive into a fresh /opt/src/<name>.
+# Uses --strip-components=1 so the top dir name (and any pax header) don't matter.
+setup_src() {  # setup_src NAME URL [URL...]
+  local name="$1"; shift
+  local d="$SRC/$name"
+  log "Building $name"
+  rm -rf "$d"; mkdir -p "$d"
+  fetch "$SRC/$name.archive" "$@"
+  tar -xf "$SRC/$name.archive" -C "$d" --strip-components=1
+  cd "$d"
 }
 
 # Generic autotools build: build_autotools NAME URL [extra configure args...]
 build_autotools() {
   local name="$1" url="$2"; shift 2
-  log "Building $name"
-  cd "$SRC"
-  download "$url" "${name}.archive"
-  local dir; dir=$(topdir "${name}.archive")
-  rm -rf "$dir"
-  tar -xf "${name}.archive"
-  cd "$dir"
+  setup_src "$name" "$url"
   ./configure --prefix="$PREFIX" --enable-static --disable-shared "$@"
   make
   make install
@@ -60,10 +79,7 @@ build_autotools() {
 # ---------------------------------------------------------------------------
 # 1. zlib (custom configure, not autotools)
 # ---------------------------------------------------------------------------
-log "Building zlib"
-cd "$SRC"
-download "https://zlib.net/zlib-1.3.1.tar.gz" zlib.archive
-zdir=$(topdir zlib.archive); rm -rf "$zdir"; tar -xf zlib.archive; cd "$zdir"
+setup_src zlib "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
 ./configure --prefix="$PREFIX" --static
 make
 make install
@@ -76,10 +92,10 @@ build_autotools expat \
   --without-docbook
 
 # ---------------------------------------------------------------------------
-# 3. freetype (no harfbuzz/png/bzip2/brotli -> minimal deps)
+# 3. freetype (no harfbuzz/png/bzip2/brotli -> minimal deps). SourceForge mirror.
 # ---------------------------------------------------------------------------
 build_autotools freetype \
-  "https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz" \
+  "https://download.sourceforge.net/freetype/freetype-2.13.3.tar.xz" \
   --without-harfbuzz --without-png --without-bzip2 --without-brotli
 
 # ---------------------------------------------------------------------------
@@ -89,12 +105,9 @@ build_autotools fribidi \
   "https://github.com/fribidi/fribidi/releases/download/v1.0.16/fribidi-1.0.16.tar.xz"
 
 # ---------------------------------------------------------------------------
-# 5. harfbuzz (meson, glib/icu disabled to avoid the glib transitive chain)
+# 5. harfbuzz (meson; glib/icu disabled to avoid the glib transitive chain)
 # ---------------------------------------------------------------------------
-log "Building harfbuzz"
-cd "$SRC"
-download "https://github.com/harfbuzz/harfbuzz/releases/download/9.0.0/harfbuzz-9.0.0.tar.xz" harfbuzz.archive
-hdir=$(topdir harfbuzz.archive); rm -rf "$hdir"; tar -xf harfbuzz.archive; cd "$hdir"
+setup_src harfbuzz "https://github.com/harfbuzz/harfbuzz/releases/download/9.0.0/harfbuzz-9.0.0.tar.xz"
 meson setup build --prefix="$PREFIX" --default-library=static --strip \
   --wrap-mode=nodownload \
   -Dglib=disabled -Dgobject=disabled -Dcairo=disabled -Dicu=disabled \
@@ -128,17 +141,17 @@ build_autotools libvorbis \
   "https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.gz"
 
 # ---------------------------------------------------------------------------
-# 10. libtheora (needs ogg)
+# 10. libtheora (needs ogg). Old; disable examples+spec (need SDL/docbook).
 # ---------------------------------------------------------------------------
 build_autotools libtheora \
   "https://downloads.xiph.org/releases/theora/libtheora-1.1.1.tar.bz2" \
-  --disable-examples
+  --disable-examples --disable-spec
 
 # ---------------------------------------------------------------------------
-# 11. libwebp
+# 11. libwebp (webmproject storage mirror; no GitHub Releases)
 # ---------------------------------------------------------------------------
 build_autotools libwebp \
-  "https://github.com/webmproject/libwebp/releases/download/v1.4.0/libwebp-1.4.0.tar.gz" \
+  "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.4.0.tar.gz" \
   --disable-gl --disable-sdl --disable-png --disable-jpeg --disable-tiff --disable-gif --disable-wic
 
 # ---------------------------------------------------------------------------
@@ -156,12 +169,9 @@ build_autotools lame \
   --disable-frontend --disable-analyzer --disable-gtktest
 
 # ---------------------------------------------------------------------------
-# 14. libvpx (custom configure, needs nasm)
+# 14. libvpx (custom configure; GitHub tag archive, needs nasm)
 # ---------------------------------------------------------------------------
-log "Building libvpx"
-cd "$SRC"
-download "https://github.com/webmproject/libvpx/releases/download/v1.14.1/libvpx-1.14.1.tar.gz" libvpx.archive
-vdir=$(topdir libvpx.archive); rm -rf "$vdir"; tar -xf libvpx.archive; cd "$vdir"
+setup_src libvpx "https://github.com/webmproject/libvpx/archive/refs/tags/v1.16.0.tar.gz"
 ./configure --prefix="$PREFIX" --enable-static --disable-shared \
   --disable-examples --disable-unit-tests --enable-vp8 --enable-vp9 \
   --enable-vp9-highbitdepth --as=nasm
@@ -169,23 +179,17 @@ make
 make install
 
 # ---------------------------------------------------------------------------
-# 15. x264 (snapshot, custom configure)
+# 15. x264 (custom configure; GitLab "stable" archive)
 # ---------------------------------------------------------------------------
-log "Building x264"
-cd "$SRC"
-download "https://download.videolan.org/pub/videolan/x264/snapshots/last_x264.tar.bz2" x264.archive
-xdir=$(topdir x264.archive); rm -rf "$xdir"; tar -xf x264.archive; cd "$xdir"
+setup_src x264 "https://code.videolan.org/videolan/x264/-/archive/stable/x264-stable.tar.bz2"
 ./configure --prefix="$PREFIX" --enable-static --disable-cli --disable-opencl
 make
 make install
 
 # ---------------------------------------------------------------------------
-# 16. x265 (cmake, from source/ subdir)
+# 16. x265 (cmake; bitbucket source archive, CMakeLists in source/)
 # ---------------------------------------------------------------------------
-log "Building x265"
-cd "$SRC"
-download "https://bitbucket.org/multicoreware/x265_git/downloads/x265_3.5.tar.gz" x265.archive
-x2dir=$(topdir x265.archive); rm -rf "$x2dir"; tar -xf x265.archive; cd "$x2dir"
+setup_src x265 "https://bitbucket.org/multicoreware/x265_git/get/3.5.tar.gz"
 cmake -G "Unix Makefiles" -S source -B build \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release \
   -DENABLE_SHARED=OFF -DENABLE_CLI=OFF -DENABLE_LIBNUMA=OFF
@@ -195,13 +199,12 @@ cmake --install build
 sed -i 's/ -lrt\b//g' "$PREFIX/lib/pkgconfig/x265.pc" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
-# 17. aom (cmake; googlesource archive extracts flat)
+# 17. aom (cmake; googlesource +archive extracts FLAT -> no strip)
 # ---------------------------------------------------------------------------
 log "Building aom"
-cd "$SRC"
-rm -rf aom-src; mkdir aom-src; cd aom-src
-download "https://aomedia.googlesource.com/aom/+archive/v3.9.0.tar.gz" aom.archive
-tar -xzf aom.archive
+ad="$SRC/aom"; rm -rf "$ad"; mkdir -p "$ad"; cd "$ad"
+fetch "$SRC/aom.archive" "https://aomedia.googlesource.com/aom/+archive/v3.9.0.tar.gz"
+tar -xzf "$SRC/aom.archive" -C "$ad"
 cmake -G "Unix Makefiles" -S . -B build \
   -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF -DCONFIG_PIC=0 \
@@ -212,10 +215,11 @@ cmake --install build
 # ---------------------------------------------------------------------------
 # 18. ffmpeg
 # ---------------------------------------------------------------------------
-log "Building ffmpeg ${FFMPEG_VERSION}"
-cd "$SRC"
-download "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" ffmpeg.archive
-fdir=$(topdir ffmpeg.archive); rm -rf "$fdir"; tar -xf ffmpeg.archive; cd "$fdir"
+# ffmpeg.org is canonical; GitHub mirror (tag n<ver>) is the fallback in case
+# ffmpeg.org is unreachable from the runner.
+setup_src ffmpeg \
+  "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+  "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz"
 ./configure \
   --prefix="$PREFIX" \
   --disable-debug --disable-doc \
