@@ -1,0 +1,13 @@
+# macOS AppleDouble resource-fork junk (the ._ prefix files that pollute
+# repos touched from macOS on non-HFS filesystems). Never commit these.
+._*
+.DS_Store
+
+# Local build output if the build script is ever run on this machine
+# (CI builds into /opt/ff and uploads dist/ as an artifact instead).
+/dist/
+
+# Editor / OS cruft
+*~
+*.swp
+Thumbs.db
