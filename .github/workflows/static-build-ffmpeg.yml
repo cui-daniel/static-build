@@ -26,8 +26,13 @@ jobs:
 
       - name: Install build tools
         run: |
+          # linux-headers provides /usr/include/linux/videodev2.h, which ffmpeg's
+          # configure auto-probes. Without it the v4l2 indev/outdev + every
+          # *_v4l2m2m hwaccel codec are silently disabled. build-base does NOT
+          # pull linux-headers in (only musl-dev/bsd-headers), so name it here.
           apk add --no-cache \
             bash build-base pkgconf nasm yasm cmake meson ninja \
+            linux-headers \
             autoconf automake libtool git wget curl tar xz bzip2 gzip \
             file perl python3 patch ca-certificates gperf diffutils
 
@@ -41,6 +46,11 @@ jobs:
           echo "=== file ==="; file /opt/ff/bin/ffmpeg /opt/ff/bin/ffprobe
           echo "=== ldd ==="; ldd /opt/ff/bin/ffmpeg /opt/ff/bin/ffprobe || true
           echo "=== version ==="; /opt/ff/bin/ffmpeg -version | head -20
+          echo "=== v4l2 (device + m2m codecs must be present) ==="
+          /opt/ff/bin/ffmpeg -hide_banner -devices | grep -E 'video4linux2|v4l2' \
+            || { echo "ERROR: v4l2 device missing (linux-headers not installed?)"; exit 1; }
+          /opt/ff/bin/ffmpeg -hide_banner -codecs | grep -q v4l2m2m \
+            || { echo "ERROR: v4l2_m2m codecs missing"; exit 1; }
 
       - name: Package
         run: |
